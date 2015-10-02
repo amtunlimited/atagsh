@@ -1,16 +1,34 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include  <sys/types.h>
+#include <sys/types.h>
+#include <signal.h>
 
 #define ARG_BUFF 50
 #define IN_BUFF 300
+
+#define CMD_BUFF 10
+
+char** history;
+int hist_count = 0;
+
+//Because for some reason C doesn't have a standard minimum function
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+
+void handle_SIGINT() {
+	int i;
+	for(i=max(0, hist_count-CMD_BUFF); i<hist_count; i++) {
+		printf("%d: %s\n", i, history[i]);
+	}
+	//exit(0);
+}
 
 //setup takes a string 'in' and parses it, seperating the string into token and
 //checking if the last character is '&'. The tokens are placed in 'args' and the
 //background flag is set in 'background'
 void setup(char* in, char** args, int* background) {
 	int i,j;
+	
 	
 	//strtok splits a string into a series of tokens. Initialized here with 'in'
 	char* arg = strtok(in, " ");
@@ -36,6 +54,7 @@ void setup(char* in, char** args, int* background) {
 	} else {
 		*background = 0;
 	}
+	
 }
 
 int main() {
@@ -43,6 +62,11 @@ int main() {
 	int len;
 	pid_t pid;
 	//printf("Checkpoint Alpha\n");
+	
+	history = malloc(sizeof(char*) * CMD_BUFF);
+	struct sigaction handler;
+	handler.sa_handler = handle_SIGINT;
+	sigaction(SIGINT, &handler, NULL);
 	
 	char** args = malloc(sizeof(char*) * ARG_BUFF);
 	char* in = malloc(sizeof(char) * IN_BUFF);
@@ -55,15 +79,20 @@ int main() {
 		//This gets the full line from stdin and makes sure it doesn't overflow
 		//the buffer.
 		fgets(in, IN_BUFF, stdin);
+		
 		len = strlen(in);
 		//Remove the trailing newline character
 		if(len > 1) {
 			if(in[len-1] == '\n')
 				in[len-1] = '\0';
-		
+				
+			//Put this list into history
+			free(history[hist_count%10]);
+			history[hist_count%10] = malloc(sizeof(char) * strlen(in));
+			strcpy(history[hist_count%10], in);
+			hist_count++;
 			//Parse the string
 			setup(in, args, &background);
-			
 			pid = fork();
 			
 			if(pid < 0) {
@@ -73,10 +102,15 @@ int main() {
 				if(!background)
 					wait();
 			} else {
-				execvp(*args, args);
+				if(execvp(*args, args) < 0) {
+					fprintf(stderr, "ERROR: command not found\n");
+					return 1;
+				}
 			}
 		}
-		
+		//When the interupt is called, read in is skipped. This tricks 'strlen'
+		//into thinking the string is an empty string
+		in[0]='\0';
 		/*
 		printf("Testing string: \"%s\"\n", in);
 		
