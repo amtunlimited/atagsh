@@ -11,24 +11,56 @@
 
 char** history;
 int hist_count = 0;
+int eof;
 
 //Because for some reason C doesn't have a standard minimum function
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+//Prints out history when ctrl+c is pressed
 void handle_SIGINT() {
 	int i;
+	printf("\n");
 	for(i=max(0, hist_count-CMD_BUFF); i<hist_count; i++) {
-		printf("%d: %s\n", i, history[i]);
+		printf("%d: %s\n", i+1, history[i%10]);
 	}
+	eof = 0;
 	//exit(0);
 }
 
 //setup takes a string 'in' and parses it, seperating the string into token and
 //checking if the last character is '&'. The tokens are placed in 'args' and the
 //background flag is set in 'background'
-void setup(char* in, char** args, int* background) {
+int setup(char* in, char** args, int* background) {
 	int i,j;
 	
+	//The long and arduous process of 
+	if(in[0] == 'r') {
+		if(in[1]==' ') {
+			char first = in[2];
+			in = NULL;
+			for(i=max(0, hist_count-CMD_BUFF); i<hist_count; i++) {
+				if(history[i%10][0] == first) {
+					in = malloc(sizeof(char) * strlen(history[i%10]));
+					strcpy(in, history[i%10]);
+				}
+			}
+			
+			if(in == NULL) {
+				fprintf(stderr, "ERROR: Command starting with \'%c\' could not be found\n", first);
+				return 1;
+			}
+		} else if(in[1]=='\0') {
+			if(hist_count) {
+				in = malloc(sizeof(char) * strlen(history[(hist_count-1)%10]));
+				strcpy(in, history[(hist_count-1)%10]);
+			} else {
+				fprintf(stderr, "ERROR: no commands in history\n");
+				return 1;
+			}
+		}
+		
+		printf("Running command \'%s\'\n\n", in);
+	}
 	
 	//strtok splits a string into a series of tokens. Initialized here with 'in'
 	char* arg = strtok(in, " ");
@@ -55,6 +87,7 @@ void setup(char* in, char** args, int* background) {
 		*background = 0;
 	}
 	
+	return 0;
 }
 
 int main() {
@@ -70,6 +103,8 @@ int main() {
 	
 	char** args = malloc(sizeof(char*) * ARG_BUFF);
 	char* in = malloc(sizeof(char) * IN_BUFF);
+	char* hist = malloc(sizeof(char) * IN_BUFF);
+	eof = 1;
 	
 	//printf("Checkpoint Bravo\n");
 	
@@ -78,21 +113,26 @@ int main() {
 		
 		//This gets the full line from stdin and makes sure it doesn't overflow
 		//the buffer.
-		fgets(in, IN_BUFF, stdin);
-		
+		if(fgets(in, IN_BUFF, stdin)==NULL) {
+			if(eof) {
+				printf("\nEOF reached, goodbye.\n");
+				return 0;
+			} else {
+				eof = 1;
+			}
+		}
 		len = strlen(in);
 		//Remove the trailing newline character
 		if(len > 1) {
 			if(in[len-1] == '\n')
 				in[len-1] = '\0';
-				
-			//Put this list into history
-			free(history[hist_count%10]);
-			history[hist_count%10] = malloc(sizeof(char) * strlen(in));
-			strcpy(history[hist_count%10], in);
-			hist_count++;
+			
+			hist = malloc(sizeof(char) * strlen(in));
+			strcpy(hist, in);
+			
 			//Parse the string
-			setup(in, args, &background);
+			if(setup(in, args, &background))
+				continue;
 			pid = fork();
 			
 			if(pid < 0) {
@@ -101,9 +141,18 @@ int main() {
 			} else if (pid > 0) {
 				if(!background)
 					wait();
+					//Put the command list into history
+					
+					if(!(hist[0]=='r' && (hist[1]=='\0' || hist[1]==' '))) {
+						free(history[hist_count%10]);
+						history[hist_count%10] = malloc(sizeof(char) * strlen(hist));
+						strcpy(history[hist_count%10], hist);
+						hist_count++;
+						free(hist);
+					}
 			} else {
 				if(execvp(*args, args) < 0) {
-					fprintf(stderr, "ERROR: command not found\n");
+					fprintf(stderr, "ERROR: \'%s\' could not be found\n", *args);
 					return 1;
 				}
 			}
