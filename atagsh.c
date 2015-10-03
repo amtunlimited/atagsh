@@ -11,6 +11,7 @@
 
 char** history;
 int hist_count = 0;
+//The SIGINT interupt interupts input, so this checks if the NULL was because of
 int eof;
 
 //Because for some reason C doesn't have a standard minimum function
@@ -33,10 +34,14 @@ void handle_SIGINT() {
 int setup(char* in, char** args, int* background) {
 	int i,j;
 	
-	//The long and arduous process of 
+	//The long and arduous process of finding if the user has used the history
+	//'r' feature
 	if(in[0] == 'r') {
+		//If the user has entered another command, use the first letter to find
+		//the last command used with that letter 
 		if(in[1]==' ') {
 			char first = in[2];
+			//To check if the command exists.
 			in = NULL;
 			for(i=max(0, hist_count-CMD_BUFF); i<hist_count; i++) {
 				if(history[i%10][0] == first) {
@@ -49,7 +54,9 @@ int setup(char* in, char** args, int* background) {
 				fprintf(stderr, "ERROR: Command starting with \'%c\' could not be found\n", first);
 				return 1;
 			}
+		//If it is just 'r', use the last command in the history
 		} else if(in[1]=='\0') {
+			//Checking if the count is 0 to throw an error if it was
 			if(hist_count) {
 				in = malloc(sizeof(char) * strlen(history[(hist_count-1)%10]));
 				strcpy(in, history[(hist_count-1)%10]);
@@ -94,33 +101,35 @@ int main() {
 	int background = 0;
 	int len;
 	pid_t pid;
-	//printf("Checkpoint Alpha\n");
 	
+	//global variables must be set in the main method because reasons
 	history = malloc(sizeof(char*) * CMD_BUFF);
+	eof = 1;
+	
+	//Setup SIGINT interupt
 	struct sigaction handler;
 	handler.sa_handler = handle_SIGINT;
 	sigaction(SIGINT, &handler, NULL);
 	
+	//Setup all of the command buffers
 	char** args = malloc(sizeof(char*) * ARG_BUFF);
 	char* in = malloc(sizeof(char) * IN_BUFF);
 	char* hist = malloc(sizeof(char) * IN_BUFF);
-	eof = 1;
-	
-	//printf("Checkpoint Bravo\n");
 	
 	while(1) {
-		printf("ATAGSH> ");
+		printf("COMMAND-> ");
 		
 		//This gets the full line from stdin and makes sure it doesn't overflow
 		//the buffer.
 		if(fgets(in, IN_BUFF, stdin)==NULL) {
+			//Check for EOF (Ctrl-D) because Ctrl-C doesn't exit.
 			if(eof) {
 				printf("\nEOF reached, goodbye.\n");
 				return 0;
-			} else {
-				eof = 1;
 			}
 		}
+		
+		eof=1;
 		len = strlen(in);
 		//Remove the trailing newline character
 		if(len > 1) {
@@ -133,6 +142,7 @@ int main() {
 			//Parse the string
 			if(setup(in, args, &background))
 				continue;
+			
 			pid = fork();
 			
 			if(pid < 0) {
@@ -141,15 +151,15 @@ int main() {
 			} else if (pid > 0) {
 				if(!background)
 					wait();
-					//Put the command list into history
 					
-					if(!(hist[0]=='r' && (hist[1]=='\0' || hist[1]==' '))) {
-						free(history[hist_count%10]);
-						history[hist_count%10] = malloc(sizeof(char) * strlen(hist));
-						strcpy(history[hist_count%10], hist);
-						hist_count++;
-						free(hist);
-					}
+				//Put the command list into history
+				if(!(hist[0]=='r' && (hist[1]=='\0' || hist[1]==' '))) {
+					free(history[hist_count%10]);
+					history[hist_count%10] = malloc(sizeof(char) * strlen(hist));
+					strcpy(history[hist_count%10], hist);
+					hist_count++;
+					free(hist);
+				}
 			} else {
 				if(execvp(*args, args) < 0) {
 					fprintf(stderr, "ERROR: \'%s\' could not be found\n", *args);
@@ -160,17 +170,8 @@ int main() {
 		//When the interupt is called, read in is skipped. This tricks 'strlen'
 		//into thinking the string is an empty string
 		in[0]='\0';
-		/*
-		printf("Testing string: \"%s\"\n", in);
-		
-		int i=0;
-		for(i=0; args[i]!= NULL; i++)
-			printf("args[%d]=\"%s\"\n", i, args[i]);
-		
-		printf("background=%d\n", background);
-		*/
 	}
 
-	
+	//Because the compiler will whine anyways. Will never be reached.
 	return 0;
 }
